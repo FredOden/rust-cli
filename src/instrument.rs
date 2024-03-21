@@ -1,8 +1,5 @@
-use std::fmt;
-use std::vec;
 use std::thread;
 use std::mem::drop;
-//use std::cell::Cell;
 use std::sync::RwLock;
 use std::time::Duration;
 use rand::{Rng};
@@ -26,6 +23,8 @@ pub struct Data {
 }
 
 /// because DataFeed is multithreaded
+/// instrument data is managed
+/// with RwLock read and write
 #[derive(Debug)]
 pub struct RwData {
     rw:RwLock<Data>
@@ -35,12 +34,12 @@ pub struct RwData {
 pub struct Instrument {
     kind: Kind,
     data: RwData,
-    subscribers:u32
+    subscribers:RwLock<usize>
 }
 
 
 impl Instrument {
-    
+
     pub fn new(kind:Kind) -> Instrument {
         Instrument {
             kind,
@@ -53,7 +52,7 @@ impl Instrument {
                 tick: 0
             })
             },
-            subscribers :0u32
+            subscribers : RwLock::new(0usize)
         }
     }
 
@@ -66,15 +65,18 @@ impl Instrument {
         }
     }
 
-    pub fn inc_subscribers(&mut self) {
-        self.subscribers += 1;
+    pub fn get_subscribers(&self) -> usize {
+        let s = self.subscribers.read().unwrap();
+        *s
     }
+
     pub fn on_image(&self) {
         println!("Image for {} {:?}", &self.get_name(), &self);
     }
     pub fn on_update(&self) {
-        let data = &self.data.rw.read().unwrap();
+        let data = self.data.rw.read().unwrap();
         println!("Update for {} {:?}", &self.get_name(), *data);
+        drop(data);
     }
 }
 
@@ -84,31 +86,33 @@ use std::collections::HashMap;
 pub struct DataFeed<'a> {
     registry: HashMap<&'a String, &'a Instrument>,
     name: String,
-    subscribed: HashMap<&'a String, &'a Instrument>,
 }
 
 impl<'a> DataFeed<'a> {
     pub fn new(name:String) -> DataFeed<'a> {
-       DataFeed {
-           name,
-           registry : HashMap::new(),
-           subscribed : HashMap::new()
-       }
+        DataFeed {
+            name,
+            registry : HashMap::new(),
+        }
     }
     pub fn add(&mut self, i:&'a Instrument) {
         self.registry.insert(i.get_name(),
-            i
+        i
         );
     }
     pub fn flush(&self) {
-       for (_, v) in &self.subscribed {
-           v.on_image();
-       }
+        for (_, v) in &self.registry {
+            if v.get_subscribers() > 0 {
+                v.on_image();
+            }
+        }
     }
     pub fn subscribe(&mut self, name:String) -> Result<&Instrument, String> {
         match self.registry.get(&name) {
             Some(&instrument) => {
-                &self.subscribed.insert(&(instrument.get_name()),&instrument);
+                let mut s = instrument.subscribers.write().unwrap();
+                *s += 1;
+                drop(s);
                 instrument.on_image();
                 Ok(&instrument)
             }
@@ -124,17 +128,17 @@ impl<'a> DataFeed<'a> {
                     println!("Starting {}", k);
                     let mut r = rand::thread_rng();
                     for _ in 1..10 {
-                        let mut ms =  r.gen_range(0..1000);
+                        let ms =  r.gen_range(0..1000);
                         thread::sleep(Duration::from_millis(ms));
                         let mut tmp = i.data.rw.write().unwrap();
                         (*tmp).last = ms as f64;
                         (*tmp).tick += 1;
                         drop(tmp);
-                        match &self.subscribed.get(i.get_name()) {
-                            Some(j) => {
-                                j.on_update();
-                            }
-                            _ => {}
+                        let s = i.subscribers.read().unwrap();
+                        let subscribers = *s;
+                        drop(s);
+                        if subscribers > 0 {
+                            i.on_update();
                         }
                     }
                     println!("ending {}", k);

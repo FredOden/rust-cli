@@ -81,7 +81,7 @@ fn do_it(opt : &Opt) {
 
     for ric in opt.subscribe.iter() {
         match reuters.subscribe(ric.to_string()) {
-            Ok(&ref i) => {
+            Ok(&ref _i) => {
                 println!("subscribed {:?}", ric);
             }
             Err(e) => {
