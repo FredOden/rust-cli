@@ -17,17 +17,24 @@ pub enum Kind {
 
 #[derive(Debug)]
 pub struct Data {
-    last:RwLock<f64>,
+    last:f64,
     bid: f64,
     ask: f64,
     open: f64,
-    close: f64
+    close: f64,
+    tick: usize
+}
+
+/// because DataFeed is multithreaded
+#[derive(Debug)]
+pub struct RwData {
+    rw:RwLock<Data>
 }
 
 #[derive(Debug)]
 pub struct Instrument {
     kind: Kind,
-    data: Data,
+    data: RwData,
     subscribers:u32
 }
 
@@ -37,12 +44,14 @@ impl Instrument {
     pub fn new(kind:Kind) -> Instrument {
         Instrument {
             kind,
-            data : Data {
-                last:RwLock::new(0f64),
+            data : RwData { rw:RwLock::new(Data {
+                last:0f64,
                 bid: 0f64,
                 ask: 0f64,
                 open: 0f64,
-                close: 0f64
+                close: 0f64,
+                tick: 0
+            })
             },
             subscribers :0u32
         }
@@ -64,9 +73,8 @@ impl Instrument {
         println!("Image for {} {:?}", &self.get_name(), &self);
     }
     pub fn on_update(&self) {
-        println!("Update {} entering", &self.get_name());
-        let last = &self.data.last.read().unwrap();
-        println!("Update for {} last {} {:?}", &self.get_name(), *last, &self);
+        let data = &self.data.rw.read().unwrap();
+        println!("Update for {} {:?}", &self.get_name(), *data);
     }
 }
 
@@ -118,8 +126,9 @@ impl<'a> DataFeed<'a> {
                     for _ in 1..10 {
                         let mut ms =  r.gen_range(0..1000);
                         thread::sleep(Duration::from_millis(ms));
-                        let mut tmp = i.data.last.write().unwrap();
-                        *tmp = ms as f64;
+                        let mut tmp = i.data.rw.write().unwrap();
+                        (*tmp).last = ms as f64;
+                        (*tmp).tick += 1;
                         drop(tmp);
                         match &self.subscribed.get(i.get_name()) {
                             Some(j) => {
