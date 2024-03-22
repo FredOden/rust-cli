@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
+use std::error::Error;
 #[path = "instrument.rs"] mod instrument;
+#[path = "alphavantageapi.rs"] mod alphavantageapi;
 
 
 #[derive(Debug)]
@@ -51,11 +53,12 @@ struct Opt {
     feed: String
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     match Opt::from_args_safe() {
         Ok(opt) => {
             println!("opt = {:#?}", opt);
-            do_it(&opt);
+            do_it(&opt).await;
         }
         Err(e) => {
             println!("problem: {}", e);
@@ -63,12 +66,12 @@ fn main() {
     }
 }
 
-fn do_it(opt : &Opt) {  
+async fn do_it(opt : &Opt) {  
     let mut reuters = instrument::DataFeed::new(opt.feed.to_string());
 
     let dictionary = vec![
-        instrument::Instrument::new(instrument::Kind::Equity("TOTF.PA".to_string())),
-        instrument::Instrument::new(instrument::Kind::Equity("MSFT.O".to_string())),
+        instrument::Instrument::new(instrument::Kind::Equity("AAPL".to_string())),
+        instrument::Instrument::new(instrument::Kind::Equity("MSFT".to_string())),
         instrument::Instrument::new(instrument::Kind::Currency("EUR=".to_string())),
         instrument::Instrument::new(instrument::Kind::Currency("CHF=".to_string())),
         instrument::Instrument::new(instrument::Kind::Currency("IDR=".to_string())),
@@ -79,20 +82,32 @@ fn do_it(opt : &Opt) {
         reuters.add(&i);
     }
 
+    let api_key = "votre_clé_api"; // Remplacez par votre clé API Marketstack.
+    let api = alphavantageapi::AlphaVantageApi::new(api_key.to_string());
     for ric in opt.subscribe.iter() {
-        match reuters.subscribe(ric.to_string()) {
-            Ok(&ref _i) => {
-                println!("subscribed {:?}", ric);
+
+        match api.get(ric).await {
+
+            Ok(financial_data) => {
+                println!("{:?}", financial_data);
+
+                match reuters.subscribe(ric.to_string()) {
+                    Ok(&ref _i) => {
+                        println!("subscribed {:?}", ric);
+                    }
+                    Err(e) => {
+                        println!("ERROR::{}", e);
+                    }
+                }
             }
             Err(e) => {
-                println!("ERROR::{}", e);
+                println!("AlphaVantageApi ERROR::{}", e);
             }
         }
     }
 
 
     reuters.start();
-
 }
 
 
