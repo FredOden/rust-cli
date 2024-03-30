@@ -1,0 +1,15 @@
+{
+	"symbols": {
+		"AAPL": {
+			"name":"Apple",
+			"kind":"Equity",
+			"close":45.97,
+			"volatility":0.02
+		},
+		"MSFT": {
+			"name":"Microsoft",
+			"kind":"Equity",
+			"close":123.67
+		}
+	}
+}

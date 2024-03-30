@@ -1,9 +1,11 @@
+use std::thread;
 use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
 use std::error::Error;
 #[path = "instrument.rs"] mod instrument;
 #[path = "alphavantageapi.rs"] mod alphavantageapi;
+#[path = "exchange_simulator.rs"] mod exchange_simulator;
 
 
 #[derive(Debug)]
@@ -40,6 +42,11 @@ struct Opt {
     #[structopt(short, long, default_value = "42")]
     rate: f64,
 
+    /// Number of loops
+    #[structopt(short, long, default_value = "15")]
+    loops: usize,
+
+
     /// list of instruments to subscrie
     #[structopt(short, long)]
     subscribe: Vec<String>,
@@ -47,6 +54,10 @@ struct Opt {
     /// type of output : stdout or file
     #[structopt(short="t", long)]
     out_type: Option<OutType>,
+
+    /// using a api or not
+    #[structopt(short, long)]
+    use_api: bool,
 
     ///datafeed
     #[structopt(short, long)]
@@ -66,8 +77,18 @@ async fn main() {
     }
 }
 
+/*
+fn register(datafeed:&instrument::DataFeed, instrument:&instrument::Instrument) {
+    datafeed.add(instrument);
+}
+*/
+
 async fn do_it(opt : &Opt) {  
     let mut reuters = instrument::DataFeed::new(opt.feed.to_string());
+
+    thread::spawn(|| {
+        exchange_simulator::start_exchange();
+    });
 
     let dictionary = vec![
         instrument::Instrument::new(instrument::Kind::Equity("AAPL".to_string())),
@@ -79,35 +100,36 @@ async fn do_it(opt : &Opt) {
     ];
 
     for i in dictionary.iter() {
-        reuters.add(&i);
+        reuters.add(&i).await;
     }
 
     let api_key = "votre_clé_api"; // Remplacez par votre clé API Marketstack.
     let api = alphavantageapi::AlphaVantageApi::new(api_key.to_string());
     for ric in opt.subscribe.iter() {
 
-        match api.get(ric).await {
+        if opt.use_api {
+            match api.get(ric).await {
+                Ok(financial_data) => {
+                    println!("{:?}", financial_data);
 
-            Ok(financial_data) => {
-                println!("{:?}", financial_data);
-
-                match reuters.subscribe(ric.to_string()) {
-                    Ok(&ref _i) => {
-                        println!("subscribed {:?}", ric);
-                    }
-                    Err(e) => {
-                        println!("ERROR::{}", e);
-                    }
+                }
+                Err(e) => {
+                    println!("AlphaVantageApi ERROR::{}", e);
                 }
             }
+        }
+        match reuters.subscribe(ric.to_string()) {
+            Ok(&ref _i) => {
+                println!("subscribed {:?}", ric);
+            }
             Err(e) => {
-                println!("AlphaVantageApi ERROR::{}", e);
+                println!("ERROR::{}", e);
             }
         }
     }
 
 
-    reuters.start();
+    reuters.start(opt.loops);
 }
 
 

@@ -5,6 +5,8 @@ use std::sync::RwLock;
 use std::time::Duration;
 use rand::{Rng}; // Import the Rng trait from the rand crate for random number generation.
 
+#[path = "client.rs"] mod client;
+
 // Define an enumeration to represent different kinds of financial instruments.
 #[derive(Debug)]
 pub enum Kind {
@@ -13,6 +15,13 @@ pub enum Kind {
     Warrant(String),
     Currency(String)
 }
+
+/*
+impl Iterator for Kind {
+    type Item = Kind;
+    fn next(&mut self) -> std::option::Option<<Self as Iterator>::Item> { todo!() }
+}
+*/
 
 // Define a struct to hold data related to financial instruments.
 #[derive(Debug)]
@@ -67,6 +76,7 @@ impl Instrument {
             Kind::Warrant(warrant) => warrant,
             Kind::Currency(currency) => currency,
         }
+        //&self.kind.take();
     }
 
     // Method to get the number of subscribers.
@@ -83,7 +93,7 @@ impl Instrument {
     // Method to simulate sending a data update to subscribers.
     pub fn on_update(&self) {
         let data = self.data.rw.read().unwrap();
-        println!("Update for {} {:?}", &self.get_name(), *data);
+        eprintln!("Update for {} {:?}", &self.get_name(), *data);
         drop(data); // Explicitly drop the read lock to release it.
     }
 }
@@ -108,8 +118,9 @@ impl<'a> DataFeed<'a> {
     }
 
     // Method to add an instrument to the registry.
-    pub fn add(&mut self, i: &'a Instrument) {
+    pub async fn add(&mut self, i: &'a Instrument) {
         self.registry.insert(i.get_name(), i);
+        client::request("127.0.0.1", 7878, i.get_name());
     }
 
     // Method to simulate sending image updates to all subscribed instruments.
@@ -136,13 +147,13 @@ impl<'a> DataFeed<'a> {
     }
 
     // Method to start the data feed and simulate instrument updates.
-    pub fn start(&self) {
+    pub fn start(&self, loops:usize) {
         thread::scope(|scope| {
             for (k, i) in &self.registry {
                 scope.spawn(move || {
                     println!("Starting {}", k);
                     let mut r = rand::thread_rng();
-                    for _ in 1..10 {
+                    for _ in 1..loops {
                         let ms = r.gen_range(0..1000);
                         thread::sleep(Duration::from_millis(ms));
                         let mut tmp = i.data.rw.write().unwrap();
